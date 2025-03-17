@@ -3,6 +3,7 @@ from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain.chains import ConversationalRetrievalChain
 import google.generativeai as genai
 from langchain.vectorstores import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -52,31 +53,21 @@ def get_vector_store(text_chunks):
     # Persist the database to disk
     vector_store.persist()
 
-# Build the conversational chain for Q&A
-def get_conversational_chain():
-    prompt_template = """
-    Answer the question as detailed as possible from the provided context. Make sure to provide all the details. 
-    If the answer is not in the provided context, just say "answer is not available in the context", don't make up an answer.
 
-    Context:\n{context}\n
-    Question:\n{question}\n
-
-    Answer:
-    """
-
+def get_conversational_chain(vector_store):
     model = ChatGoogleGenerativeAI(
         model="models/gemini-1.5-pro-latest",
         temperature=0.3
     )
 
-    prompt = PromptTemplate(
-        template=prompt_template,
-        input_variables=["context", "question"]
+    chain = ConversationalRetrievalChain.from_llm(
+        llm=model,
+        retriever=vector_store.as_retriever(search_kwargs={"k": 5}),
+        return_source_documents=True
     )
 
-    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
-
     return chain
+
 
 # Process the user's question and retrieve answers
 def user_input(user_question):
