@@ -3,15 +3,13 @@ from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.chains import ConversationalRetrievalChain
 import google.generativeai as genai
 from langchain.vectorstores import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains.question_answering import load_qa_chain
-from langchain.prompts import PromptTemplate
+from langchain.chains import ConversationalRetrievalChain
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from .env file (for local dev)
 load_dotenv()
 
 # Get the API Key from Render environment or secrets
@@ -25,36 +23,46 @@ if not api_key:
 # Configure Google GenAI
 genai.configure(api_key=api_key)
 
-# Extract text from uploaded PDFs
+# ===================== PDF Processing =====================
+
 def get_pdf_text(pdf_docs):
+    """Extracts text from multiple PDF files"""
     text = ""
     for pdf in pdf_docs:
         pdf_reader = PdfReader(pdf)
         for page in pdf_reader.pages:
-            text += page.extract_text() or ""  # Avoid NoneType errors
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text
     return text
 
-# Split text into manageable chunks
 def get_text_chunks(text):
+    """Splits large text into manageable chunks"""
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
     chunks = text_splitter.split_text(text)
     return chunks
 
-# Create ChromaDB vector store and persist it
+# ===================== Vector Store =====================
+
 def get_vector_store(text_chunks):
+    """Creates and persists Chroma vector store from text chunks"""
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     
-    # Set persist directory
     persist_directory = "db"
 
-    # Initialize Chroma vector store
-    vector_store = Chroma.from_texts(text_chunks, embedding=embeddings, persist_directory=persist_directory)
+    # Create new Chroma DB (persistent)
+    vector_store = Chroma.from_texts(
+        texts=text_chunks,
+        embedding=embeddings,
+        persist_directory=persist_directory
+    )
     
-    # Persist the database to disk
     vector_store.persist()
 
+# ===================== Conversational Chain =====================
 
 def get_conversational_chain(vector_store):
+    """Creates ConversationalRetrievalChain with Google Gemini"""
     model = ChatGoogleGenerativeAI(
         model="models/gemini-1.5-pro-latest",
         temperature=0.3
@@ -68,52 +76,67 @@ def get_conversational_chain(vector_store):
 
     return chain
 
+# ===================== User Input Handling =====================
 
-# Process the user's question and retrieve answers
 def user_input(user_question):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 
-    # Set persist directory
     persist_directory = "db"
 
-    # Load the existing Chroma vector store
-    vector_store = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
+    # Load existing Chroma vector store
+    vector_store = Chroma(
+        persist_directory=persist_directory,
+        embedding_function=embeddings
+    )
 
-    # Perform similarity search
-    docs = vector_store.similarity_search(user_question)
+    # Get conversational chain with retriever
+    chain = get_conversational_chain(vector_store)
 
-    # Get the conversational chain
-    chain = get_conversational_chain()
+    # Run the chain to get the response
+    result = chain({
+        "question": user_question,
+        "chat_history": st.session_state.get('chat_history', [])
+    })
 
-    # Generate response
-    response = chain({"input_documents": docs, "question": user_question}, return_only_outputs=True)
+    # Extract and display the answer
+    st.write("Reply:", result['answer'])
 
-    # Display the reply
-    st.write("Reply:", response["output_text"])
+    # Update chat history
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    
+    st.session_state.chat_history.append((user_question, result['answer']))
 
-# Streamlit UI
+    # Optional: Show the source documents (for transparency/debugging)
+    with st.expander("Source Documents"):
+        for i, doc in enumerate(result["source_documents"]):
+            st.markdown(f"**Document {i + 1}:** {doc.metadata.get('source', 'N/A')}")
+            st.write(doc.page_content)
+
+# ===================== Streamlit UI =====================
+
 def main():
-    st.set_page_config("Chat PDF")
+    st.set_page_config("Chat PDF with Gemini", page_icon="🤖📄")
     st.header("Chat with PDF using Gemini 🤖📄")
 
-    user_question = st.text_input("Ask a Question from the PDF Files")
+    user_question = st.text_input("Ask a question from the PDF files:")
 
     if user_question:
         user_input(user_question)
 
     with st.sidebar:
-        st.title("Menu:")
-        pdf_docs = st.file_uploader("Upload your PDF Files and Click on the Submit & Process Button", accept_multiple_files=True)
+        st.title("📂 Upload and Process Files")
+        pdf_docs = st.file_uploader("Upload your PDF files:", accept_multiple_files=True)
         
         if st.button("Submit & Process"):
             if pdf_docs:
-                with st.spinner("Processing..."):
+                with st.spinner("Processing PDFs..."):
                     raw_text = get_pdf_text(pdf_docs)
                     text_chunks = get_text_chunks(raw_text)
                     get_vector_store(text_chunks)
-                    st.success("Done! Your PDF is ready to chat. 🎉")
+                    st.success("✅ Done! You can now chat with your PDFs.")
             else:
-                st.warning("Please upload at least one PDF file.")
+                st.warning("⚠️ Please upload at least one PDF file.")
 
 if __name__ == "__main__":
     main()
