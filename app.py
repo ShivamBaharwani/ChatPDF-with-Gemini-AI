@@ -12,7 +12,13 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-api_key = os.getenv("GOOGLE_API_KEY")
+# api_key = os.getenv("GOOGLE_API_KEY")
+api_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+# genai.configure(api_key=api_key)
+if not api_key:
+    st.error("GOOGLE_API_KEY not found! Please set it in .env (local) or Streamlit Secrets (cloud).")
+    st.stop()
+
 genai.configure(api_key=api_key)
 
 # Get PDF text content
