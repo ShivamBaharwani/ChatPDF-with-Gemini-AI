@@ -10,12 +10,10 @@ from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
 
-# Get PDF text content
 def get_pdf_text(pdf_docs):
     text = ""
     for pdf in pdf_docs:
@@ -24,19 +22,16 @@ def get_pdf_text(pdf_docs):
             text += page.extract_text()
     return text
 
-# Split text into chunks
 def get_text_chunks(text):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
     chunks = text_splitter.split_text(text)
     return chunks
 
-# Create and save vector store using ChromaDB
 def get_vector_store(text_chunks):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vector_store = Chroma.from_texts(text_chunks, embedding=embeddings, persist_directory="chroma_index")
     vector_store.persist()  # Save locally (use persist_directory)
 
-# Build the conversational chain
 def get_conversational_chain():
     prompt_template = """
     Answer the question as detailed as possible from the provided context. Make sure to provide all the details. 
@@ -62,11 +57,9 @@ def get_conversational_chain():
 
     return chain
 
-# Process user input and run the conversational chain
 def user_input(user_question):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 
-    # Load the Chroma vector store
     vector_store = Chroma(persist_directory="chroma_index", embedding_function=embeddings)
 
     docs = vector_store.similarity_search(user_question)
@@ -77,7 +70,6 @@ def user_input(user_question):
 
     st.write("Reply:", response["output_text"])
 
-# Streamlit main app
 def main():
     st.set_page_config("Chat PDF")
     st.header("Chat with PDF using Gemini 🤖📄")
